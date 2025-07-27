@@ -319,7 +319,8 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
             vaultId: vault.id,
         };
 
-        const uploadResponse = await axiosInstance.post('https://api.tusky.io/uploads', imageBuffer, {
+        // Perubahan di sini: URL API untuk upload file diperbarui
+        const uploadResponse = await axiosInstance.post('https://storage.chatling.ai/uploads', imageBuffer, {
             headers: uploadHeaders,
             params: uploadParams,
         });
