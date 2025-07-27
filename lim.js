@@ -43,7 +43,7 @@ const logger = {
     section: (msg) => {
         const line = '─'.repeat(40);
         console.log(`\n${colors.gray}${line}${colors.reset}`);
-        if (msg) console.log(`${colors.white}${colors.bold} ${msg} ${colors.reset}`);
+        if (msg) console.log(`${colors.white}${colors.bold} ${msg}${colors.reset}`);
         console.log(`${colors.gray}${line}${colors.reset}\n`);
     },
     countdown: (msg) => process.stdout.write(`\r${colors.blue}[⏰] ${msg}${colors.reset}`),
@@ -59,6 +59,7 @@ const generateRandomUserAgent = () => {
     return `"Not)A;Brand";v="8", "Chromium";v="${version}", "${browser}";v="${version}"`;
 };
 
+// --- URL API dan Referer Baru ---
 const BASE_API_URL = 'https://dev-api.tusky.io/';
 const REFERER_URL = 'https://devnet.app.tusky.io/';
 // --- Akhir URL Baru ---
@@ -77,28 +78,8 @@ const getCommonHeaders = (authToken = null) => ({
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-site',
     'sec-gpc': '1',
-    // Referer telah diperbarui di sini
     Referer: REFERER_URL,
     ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
-});
-
-// Fungsi baru untuk header upload, juga menggunakan referer baru
-const getUploadHeaders = (idToken, fileSize, uploadMetadata) => ({
-    accept: 'application/json, text/plain, */*',
-    'accept-language': 'en-US,en;q=0.8',
-    'content-type': 'application/offset+octet-stream', // Penting untuk TUS
-    'tus-resumable': '1.0.0', // Penting untuk TUS
-    'upload-length': fileSize.toString(), // Penting untuk TUS
-    'upload-metadata': Object.entries(uploadMetadata)
-        .map(([k, v]) => {
-            if (['vaultId', 'parentId'].includes(k)) {
-                return `${k} ${Buffer.from(v).toString('base64')}`;
-            }
-            return `${k} ${v}`;
-        })
-        .join(','),
-    Referer: REFERER_URL, // Referer telah diperbarui di sini
-    ...(idToken ? { authorization: `Bearer ${idToken}` } : {}),
 });
 
 const loadProxies = () => {
@@ -163,7 +144,7 @@ const loginWallet = async (account) => {
         logger.info(`Processing address: ${address}`);
 
         const challengeResponse = await axios.post(
-            `${BASE_API_URL}auth/create-challenge?`, // Endpoint diperbarui
+            `${BASE_API_URL}auth/create-challenge?`,
             { address },
             { headers: getCommonHeaders() }
         );
@@ -178,7 +159,7 @@ const loginWallet = async (account) => {
         logger.info(`Generated signature: ${signature}`);
 
         const verifyResponse = await axios.post(
-            `${BASE_API_URL}auth/verify-challenge?`, // Endpoint diperbarui
+            `${BASE_API_URL}auth/verify-challenge?`,
             { address, signature },
             { headers: getCommonHeaders() }
         );
@@ -202,7 +183,7 @@ const loginWallet = async (account) => {
 const fetchStorageInfo = async (idToken, axiosInstance, account) => {
     logger.step(`Fetching storage information for account ${account.accountIndex}`);
     try {
-        const response = await axiosInstance.get(`${BASE_API_URL}storage?`, { // Endpoint diperbarui
+        const response = await axiosInstance.get(`${BASE_API_URL}storage?`, {
             headers: {
                 ...getCommonHeaders(idToken),
                 'client-name': 'Tusky-App/dev',
@@ -257,7 +238,7 @@ const createPublicVault = async (idToken, axiosInstance, account) => {
             tags: []
         };
 
-        const response = await axiosInstance.post(`${BASE_API_URL}vaults?`, vaultData, { // Endpoint diperbarui
+        const response = await axiosInstance.post(`${BASE_API_URL}vaults?`, vaultData, {
             headers: {
                 ...getCommonHeaders(idToken),
                 'client-name': 'Tusky-App/dev',
@@ -314,35 +295,71 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
         const fileSize = imageBuffer.length;
         const mimeType = 'image/jpeg';
 
-        const uploadMetadata = {
+        // --- LANGKAH 1: Minta URL Pre-signed dari API Tusky ---
+        logger.info(`Requesting pre-signed URL for file "${fileName}" from Tusky API...`);
+
+        // Anda perlu memastikan payload ini sesuai dengan yang diharapkan oleh API Tusky
+        const preSignedUrlRequestPayload = {
+            fileName: fileName,
+            fileSize: fileSize,
+            mimeType: mimeType,
             vaultId: vault.id,
             parentId: vault.rootFolderId,
-            relativePath: Buffer.from('null').toString('base64'),
-            name: Buffer.from(fileName).toString('base64'),
-            type: Buffer.from(mimeType).toString('base64'),
-            filetype: Buffer.from(mimeType).toString('base64'),
-            filename: Buffer.from(fileName).toString('base64'),
+            // Tambahkan properti lain yang mungkin dibutuhkan oleh API Tusky
+            // Misalnya: 'path': 'nama_folder_opsional/nama_file.jpg'
         };
 
-        const uploadHeaders = getUploadHeaders(idToken, fileSize, uploadMetadata);
+        let preSignedUploadUrl;
+        try {
+            // !!! PENTING: Ganti 'uploads/request-upload-url' dengan endpoint yang benar !!!
+            // Endpoint ini adalah yang harus Anda temukan melalui analisis network tools
+            // saat mengunggah file secara manual di devnet.app.tusky.io.
+            const preSignedResponse = await axiosInstance.post(
+                `${BASE_API_URL}uploads/request-upload-url`, // Contoh: https://dev-api.tusky.io/uploads/request-upload-url
+                preSignedUrlRequestPayload,
+                { headers: getCommonHeaders(idToken) }
+            );
 
-        const uploadParams = {
-            vaultId: vault.id,
+            // Asumsi URL pre-signed ada di properti 'url' dari respons
+            preSignedUploadUrl = preSignedResponse.data.url;
+            if (!preSignedUploadUrl) {
+                throw new Error('Pre-signed URL not found in response.');
+            }
+            logger.success(`Received pre-signed upload URL: ${preSignedUploadUrl.slice(0, 80)}...`);
+        } catch (preSignError) {
+            logger.error(`Failed to get pre-signed URL: ${preSignError.message}`);
+            if (preSignError.response) logger.error(`API response from pre-sign request: ${JSON.stringify(preSignError.response.data)}`);
+            throw new Error("Could not get pre-signed upload URL.");
+        }
+
+        // --- LANGKAH 2: Upload file langsung ke URL Pre-signed menggunakan PUT ---
+        logger.info(`Uploading file directly to pre-signed URL...`);
+
+        // Header untuk PUT ke pre-signed URL biasanya lebih sederhana.
+        // Terkadang hanya Content-Type yang diperlukan. Referer dan Authorization
+        // biasanya tidak diperlukan karena izin sudah ada di URL itu sendiri,
+        // tetapi disertakan sebagai fallback jika server storage.chatling.ai memerlukannya.
+        const directUploadHeaders = {
+            'Content-Type': mimeType,
+            'Referer': REFERER_URL, // Tetap sertakan referer yang benar
+            ...(idToken ? { authorization: `Bearer ${idToken}` } : {}), // Coba sertakan token sebagai fallback
         };
 
-        // Perhatian: Endpoint upload ini tetap menggunakan storage.chatling.ai/uploads
-        // karena ini adalah layanan terpisah yang Anda sebutkan sebelumnya.
-        // Jika Anda ingin mengubah ini juga, mohon berikan endpoint yang baru.
-        const uploadResponse = await axiosInstance.post('https://storage.chatling.ai/uploads', imageBuffer, {
-            headers: uploadHeaders,
-            params: uploadParams,
+        const uploadResponse = await axiosInstance.put(preSignedUploadUrl, imageBuffer, {
+            headers: directUploadHeaders,
+            maxBodyLength: Infinity, // Untuk upload file besar
+            maxContentLength: Infinity, // Untuk upload file besar
         });
 
-        const uploadId = uploadResponse.data.uploadId;
-        logger.success(`File uploaded to vault "${vault.name}", Upload ID: ${uploadId}`);
-        logger.info(`File details: ${fileName} (${(fileSize / 1000000).toFixed(2)} MB)`);
+        // Cek status respons dari PUT
+        if (uploadResponse.status === 200 || uploadResponse.status === 204) {
+            logger.success(`File uploaded successfully to vault "${vault.name}" via pre-signed URL.`);
+            logger.info(`File details: ${fileName} (${(fileSize / 1000000).toFixed(2)} MB)`);
+            return preSignedUploadUrl; // Atau ID file jika respons PUT mengembalikannya
+        } else {
+            throw new Error(`Direct upload to pre-signed URL failed with status: ${uploadResponse.status}`);
+        }
 
-        return uploadId;
     } catch (error) {
         if (error.response && error.response.status === 401) {
             logger.warn(`Token expired for account ${account.accountIndex}. Attempting to refresh token...`);
@@ -449,7 +466,7 @@ const main = async () => {
                 accounts.push({ privateKey, mnemonic: null, index: accounts.length + 1, type: 'privateKey' });
             }
             if (mnemonic) {
-                accounts.push({ privateKey: null, index: accounts.length + 1, type: 'mnemonic' });
+                accounts.push({ privateKey: null, mnemonic, index: accounts.length + 1, type: 'mnemonic' });
             }
             i++;
         }
