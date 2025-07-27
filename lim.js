@@ -62,6 +62,8 @@ const generateRandomUserAgent = () => {
 // --- URL API dan Referer Baru ---
 const BASE_API_URL = 'https://dev-api.tusky.io/';
 const REFERER_URL = 'https://devnet.app.tusky.io/';
+// --- Endpoint Upload Baru ---
+const UPLOAD_API_URL = 'https://api.tusky.io/uploads'; // Endpoint upload yang diminta
 // --- Akhir URL Baru ---
 
 const getCommonHeaders = (authToken = null) => ({
@@ -80,6 +82,27 @@ const getCommonHeaders = (authToken = null) => ({
     'sec-gpc': '1',
     Referer: REFERER_URL,
     ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
+});
+
+// Fungsi untuk header upload, dikembalikan lagi
+const getUploadHeaders = (idToken, fileSize, uploadMetadata) => ({
+    accept: 'application/json, text/plain, */*',
+    'accept-language': 'en-US,en;q=0.8',
+    'content-type': 'application/offset+octet-stream', // Penting untuk TUS
+    'tus-resumable': '1.0.0', // Penting untuk TUS
+    'upload-length': fileSize.toString(), // Penting untuk TUS
+    'upload-metadata': Object.entries(uploadMetadata)
+        .map(([k, v]) => {
+            // Encode value if it's vaultId, parentId, name, type, filetype, filename
+            if (['vaultId', 'parentId', 'name', 'type', 'filetype', 'filename'].includes(k)) {
+                // Pastikan nilai adalah string sebelum di-encode
+                return `${k} ${Buffer.from(String(v)).toString('base64')}`;
+            }
+            return `${k} ${v}`; // Biarkan nilai lain seperti adanya
+        })
+        .join(','),
+    Referer: REFERER_URL,
+    ...(idToken ? { authorization: `Bearer ${idToken}` } : {}),
 });
 
 const loadProxies = () => {
@@ -295,71 +318,33 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
         const fileSize = imageBuffer.length;
         const mimeType = 'image/jpeg';
 
-        // --- LANGKAH 1: Minta URL Pre-signed dari API Tusky ---
-        logger.info(`Requesting pre-signed URL for file "${fileName}" from Tusky API...`);
-
-        // Anda perlu memastikan payload ini sesuai dengan yang diharapkan oleh API Tusky
-        const preSignedUrlRequestPayload = {
-            fileName: fileName,
-            fileSize: fileSize,
-            mimeType: mimeType,
+        const uploadMetadata = {
             vaultId: vault.id,
             parentId: vault.rootFolderId,
-            // Tambahkan properti lain yang mungkin dibutuhkan oleh API Tusky
-            // Misalnya: 'path': 'nama_folder_opsional/nama_file.jpg'
+            relativePath: 'null', // 'null' string, tidak perlu di-base64 jika tidak ada path
+            name: fileName,
+            type: mimeType,
+            filetype: mimeType,
+            filename: fileName,
         };
 
-        let preSignedUploadUrl;
-        try {
-            // !!! PENTING: Ganti 'uploads/request-upload-url' dengan endpoint yang benar !!!
-            // Endpoint ini adalah yang harus Anda temukan melalui analisis network tools
-            // saat mengunggah file secara manual di devnet.app.tusky.io.
-            const preSignedResponse = await axiosInstance.post(
-                `${BASE_API_URL}uploads/request-upload-url`, // Contoh: https://dev-api.tusky.io/uploads/request-upload-url
-                preSignedUrlRequestPayload,
-                { headers: getCommonHeaders(idToken) }
-            );
+        const uploadHeaders = getUploadHeaders(idToken, fileSize, uploadMetadata);
 
-            // Asumsi URL pre-signed ada di properti 'url' dari respons
-            preSignedUploadUrl = preSignedResponse.data.url;
-            if (!preSignedUploadUrl) {
-                throw new Error('Pre-signed URL not found in response.');
-            }
-            logger.success(`Received pre-signed upload URL: ${preSignedUploadUrl.slice(0, 80)}...`);
-        } catch (preSignError) {
-            logger.error(`Failed to get pre-signed URL: ${preSignError.message}`);
-            if (preSignError.response) logger.error(`API response from pre-sign request: ${JSON.stringify(preSignError.response.data)}`);
-            throw new Error("Could not get pre-signed upload URL.");
-        }
-
-        // --- LANGKAH 2: Upload file langsung ke URL Pre-signed menggunakan PUT ---
-        logger.info(`Uploading file directly to pre-signed URL...`);
-
-        // Header untuk PUT ke pre-signed URL biasanya lebih sederhana.
-        // Terkadang hanya Content-Type yang diperlukan. Referer dan Authorization
-        // biasanya tidak diperlukan karena izin sudah ada di URL itu sendiri,
-        // tetapi disertakan sebagai fallback jika server storage.chatling.ai memerlukannya.
-        const directUploadHeaders = {
-            'Content-Type': mimeType,
-            'Referer': REFERER_URL, // Tetap sertakan referer yang benar
-            ...(idToken ? { authorization: `Bearer ${idToken}` } : {}), // Coba sertakan token sebagai fallback
+        const uploadParams = {
+            vaultId: vault.id, // Parameter ini mungkin dibutuhkan oleh endpoint
         };
 
-        const uploadResponse = await axiosInstance.put(preSignedUploadUrl, imageBuffer, {
-            headers: directUploadHeaders,
-            maxBodyLength: Infinity, // Untuk upload file besar
-            maxContentLength: Infinity, // Untuk upload file besar
+        // --- Perubahan: Menggunakan UPLOAD_API_URL yang baru ---
+        const uploadResponse = await axiosInstance.post(UPLOAD_API_URL, imageBuffer, {
+            headers: uploadHeaders,
+            params: uploadParams, // Sertakan params jika diperlukan oleh endpoint
         });
 
-        // Cek status respons dari PUT
-        if (uploadResponse.status === 200 || uploadResponse.status === 204) {
-            logger.success(`File uploaded successfully to vault "${vault.name}" via pre-signed URL.`);
-            logger.info(`File details: ${fileName} (${(fileSize / 1000000).toFixed(2)} MB)`);
-            return preSignedUploadUrl; // Atau ID file jika respons PUT mengembalikannya
-        } else {
-            throw new Error(`Direct upload to pre-signed URL failed with status: ${uploadResponse.status}`);
-        }
+        const uploadId = uploadResponse.data.uploadId; // Asumsi respons memiliki uploadId
+        logger.success(`File uploaded to vault "${vault.name}", Upload ID: ${uploadId}`);
+        logger.info(`File details: ${fileName} (${(fileSize / 1000000).toFixed(2)} MB)`);
 
+        return uploadId;
     } catch (error) {
         if (error.response && error.response.status === 401) {
             logger.warn(`Token expired for account ${account.accountIndex}. Attempting to refresh token...`);
