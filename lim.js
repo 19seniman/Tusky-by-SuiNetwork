@@ -17,9 +17,9 @@ const colors = {
     red: "\x1b[31m",
     white: "\x1b[37m",
     bold: "\x1b[1m",
-    magenta: "\x1b[35m", 
-    blue: "\x1b[34m", 
-    gray: "\x1b[90m", 
+    magenta: "\x1b[35m",
+    blue: "\x1b[34m",
+    gray: "\x1b[90m",
 };
 
 const logger = {
@@ -59,6 +59,10 @@ const generateRandomUserAgent = () => {
     return `"Not)A;Brand";v="8", "Chromium";v="${version}", "${browser}";v="${version}"`;
 };
 
+const BASE_API_URL = 'https://dev-api.tusky.io/';
+const REFERER_URL = 'https://devnet.app.tusky.io/';
+// --- Akhir URL Baru ---
+
 const getCommonHeaders = (authToken = null) => ({
     accept: 'application/json, text/plain, */*',
     'accept-language': 'en-US,en;q=0.8',
@@ -73,8 +77,28 @@ const getCommonHeaders = (authToken = null) => ({
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-site',
     'sec-gpc': '1',
-    Referer: 'https://app.tusky.io/',
+    // Referer telah diperbarui di sini
+    Referer: REFERER_URL,
     ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
+});
+
+// Fungsi baru untuk header upload, juga menggunakan referer baru
+const getUploadHeaders = (idToken, fileSize, uploadMetadata) => ({
+    accept: 'application/json, text/plain, */*',
+    'accept-language': 'en-US,en;q=0.8',
+    'content-type': 'application/offset+octet-stream', // Penting untuk TUS
+    'tus-resumable': '1.0.0', // Penting untuk TUS
+    'upload-length': fileSize.toString(), // Penting untuk TUS
+    'upload-metadata': Object.entries(uploadMetadata)
+        .map(([k, v]) => {
+            if (['vaultId', 'parentId'].includes(k)) {
+                return `${k} ${Buffer.from(v).toString('base64')}`;
+            }
+            return `${k} ${v}`;
+        })
+        .join(','),
+    Referer: REFERER_URL, // Referer telah diperbarui di sini
+    ...(idToken ? { authorization: `Bearer ${idToken}` } : {}),
 });
 
 const loadProxies = () => {
@@ -139,7 +163,7 @@ const loginWallet = async (account) => {
         logger.info(`Processing address: ${address}`);
 
         const challengeResponse = await axios.post(
-            'https://api.tusky.io/auth/create-challenge?',
+            `${BASE_API_URL}auth/create-challenge?`, // Endpoint diperbarui
             { address },
             { headers: getCommonHeaders() }
         );
@@ -154,7 +178,7 @@ const loginWallet = async (account) => {
         logger.info(`Generated signature: ${signature}`);
 
         const verifyResponse = await axios.post(
-            'https://api.tusky.io/auth/verify-challenge?',
+            `${BASE_API_URL}auth/verify-challenge?`, // Endpoint diperbarui
             { address, signature },
             { headers: getCommonHeaders() }
         );
@@ -178,7 +202,7 @@ const loginWallet = async (account) => {
 const fetchStorageInfo = async (idToken, axiosInstance, account) => {
     logger.step(`Fetching storage information for account ${account.accountIndex}`);
     try {
-        const response = await axiosInstance.get('https://api.tusky.io/storage?', {
+        const response = await axiosInstance.get(`${BASE_API_URL}storage?`, { // Endpoint diperbarui
             headers: {
                 ...getCommonHeaders(idToken),
                 'client-name': 'Tusky-App/dev',
@@ -233,7 +257,7 @@ const createPublicVault = async (idToken, axiosInstance, account) => {
             tags: []
         };
 
-        const response = await axiosInstance.post('https://api.tusky.io/vaults?', vaultData, {
+        const response = await axiosInstance.post(`${BASE_API_URL}vaults?`, vaultData, { // Endpoint diperbarui
             headers: {
                 ...getCommonHeaders(idToken),
                 'client-name': 'Tusky-App/dev',
@@ -300,26 +324,16 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
             filename: Buffer.from(fileName).toString('base64'),
         };
 
-        const uploadHeaders = {
-            ...getCommonHeaders(idToken),
-            'content-type': 'application/offset+octet-stream',
-            'tus-resumable': '1.0.0',
-            'upload-length': fileSize.toString(),
-            'upload-metadata': Object.entries(uploadMetadata)
-                .map(([k, v]) => {
-                    if (['vaultId', 'parentId'].includes(k)) {
-                        return `${k} ${Buffer.from(v).toString('base64')}`;
-                    }
-                    return `${k} ${v}`;
-                })
-                .join(','),
-        };
+        const uploadHeaders = getUploadHeaders(idToken, fileSize, uploadMetadata);
 
         const uploadParams = {
             vaultId: vault.id,
         };
 
-        const uploadResponse = await axiosInstance.post('https://api.tusky.io/uploads', imageBuffer, {
+        // Perhatian: Endpoint upload ini tetap menggunakan storage.chatling.ai/uploads
+        // karena ini adalah layanan terpisah yang Anda sebutkan sebelumnya.
+        // Jika Anda ingin mengubah ini juga, mohon berikan endpoint yang baru.
+        const uploadResponse = await axiosInstance.post('https://storage.chatling.ai/uploads', imageBuffer, {
             headers: uploadHeaders,
             params: uploadParams,
         });
@@ -435,7 +449,7 @@ const main = async () => {
                 accounts.push({ privateKey, mnemonic: null, index: accounts.length + 1, type: 'privateKey' });
             }
             if (mnemonic) {
-                accounts.push({ privateKey: null, mnemonic, index: accounts.length + 1, type: 'mnemonic' });
+                accounts.push({ privateKey: null, index: accounts.length + 1, type: 'mnemonic' });
             }
             i++;
         }
