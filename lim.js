@@ -74,7 +74,7 @@ const getCommonHeaders = (authToken = null) => ({
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-site',
     'sec-gpc': '1',
-    Referer: 'https://testnet.app.tusky.io',
+    Referer: 'https://testnet.app.tusky.io/',
     ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
 });
 
@@ -313,7 +313,7 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
         
         logger.loading(`Uploading ${fileName} (${(fileSize / 1000000).toFixed(2)} MB)...`);
         // PERUBAHAN 2: Menghapus `params` yang redundan dari panggilan POST
-        const uploadResponse = await axiosInstance.post(`https://api.tusky.io/uploads?vaultId=${vault.id}`, imageBuffer, {
+        const uploadResponse = await axiosInstance.post(`https://storage.chatling.ai/uploads?vaultId=${vault.id}`, imageBuffer, {
             headers: uploadHeaders,
         });
 
