@@ -74,7 +74,7 @@ const getCommonHeaders = (authToken = null) => ({
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-site',
     'sec-gpc': '1',
-    Referer: 'https://testnet.app.tusky.io/',
+    Referer: 'https://testnet.app.tusky.io',
     ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
 });
 
