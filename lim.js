@@ -77,6 +77,33 @@ const getCommonHeaders = (authToken = null) => ({
     ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
 });
 
+// Fungsi baru untuk header upload
+const getUploadHeaders = (idToken, fileSize, uploadMetadata) => ({
+    accept: 'application/json, text/plain, */*',
+    'accept-language': 'en-US,en;q=0.8',
+    'content-type': 'application/offset+octet-stream', // Penting untuk TUS
+    'tus-resumable': '1.0.0', // Penting untuk TUS
+    'upload-length': fileSize.toString(), // Penting untuk TUS
+    'upload-metadata': Object.entries(uploadMetadata)
+        .map(([k, v]) => {
+            if (['vaultId', 'parentId'].includes(k)) {
+                return `${k} ${Buffer.from(v).toString('base64')}`;
+            }
+            return `${k} ${v}`;
+        })
+        .join(','),
+    // Header berikut mungkin tidak diperlukan atau bahkan menyebabkan masalah untuk endpoint upload yang berbeda
+    // 'client-name': 'Tusky-App/dev',
+    // 'sdk-version': 'Tusky-SDK/0.31.0',
+    // 'sec-ch-ua': generateRandomUserAgent(),
+    // 'sec-ch-ua-mobile': '?0',
+    // 'sec-ch-ua-platform': '"Windows"',
+    // 'sec-gpc': '1',
+    Referer: 'https://testnet.app.tusky.io/', // Tetap gunakan referer yang konsisten
+    ...(idToken ? { authorization: `Bearer ${idToken}` } : {}),
+});
+
+
 const loadProxies = () => {
     try {
         const proxies = fs.readFileSync('proxies.txt', 'utf8')
@@ -300,26 +327,13 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
             filename: Buffer.from(fileName).toString('base64'),
         };
 
-        const uploadHeaders = {
-            ...getCommonHeaders(idToken),
-            'content-type': 'application/offset+octet-stream',
-            'tus-resumable': '1.0.0',
-            'upload-length': fileSize.toString(),
-            'upload-metadata': Object.entries(uploadMetadata)
-                .map(([k, v]) => {
-                    if (['vaultId', 'parentId'].includes(k)) {
-                        return `${k} ${Buffer.from(v).toString('base64')}`;
-                    }
-                    return `${k} ${v}`;
-                })
-                .join(','),
-        };
+        // Menggunakan fungsi getUploadHeaders yang baru
+        const uploadHeaders = getUploadHeaders(idToken, fileSize, uploadMetadata);
 
         const uploadParams = {
             vaultId: vault.id,
         };
 
-        // Perubahan di sini: URL API untuk upload file diperbarui
         const uploadResponse = await axiosInstance.post('https://storage.chatling.ai/uploads', imageBuffer, {
             headers: uploadHeaders,
             params: uploadParams,
