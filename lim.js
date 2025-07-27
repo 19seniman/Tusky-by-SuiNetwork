@@ -9,7 +9,6 @@ const { decodeSuiPrivateKey } = require('@mysten/sui.js/cryptography');
 
 dotenv.config();
 
-// Objek warna yang diperbarui
 const colors = {
     reset: "\x1b[0m",
     cyan: "\x1b[36m",
@@ -23,7 +22,6 @@ const colors = {
     gray: "\x1b[90m",
 };
 
-// Logger baru yang Anda berikan
 const logger = {
     info: (msg) => console.log(`${colors.cyan}[i] ${msg}${colors.reset}`),
     warn: (msg) => console.log(`${colors.yellow}[!] ${msg}${colors.reset}`),
@@ -164,7 +162,7 @@ const loginWallet = async (account) => {
         fs.appendFileSync('tokens.txt', `${idToken}\n`);
         logger.info(`Token saved to tokens.txt`);
 
-        return { idToken, address, accountIndex: account.index };
+        return { idToken, address, accountIndex: account.index, privateKey: account.privateKey, mnemonic: account.mnemonic, type: account.type };
     } catch (error) {
         logger.error(`Failed to login for account ${account.index} (${account.type}): ${error.message}`);
         if (error.response) {
@@ -192,14 +190,14 @@ const fetchStorageInfo = async (idToken, axiosInstance, account) => {
     } catch (error) {
         if (error.response && error.response.status === 401) {
             logger.warn(`Token expired for account ${account.accountIndex}. Attempting to refresh token...`);
-            const newToken = await loginWallet({
+            const newTokenData = await loginWallet({
                 privateKey: account.privateKey,
                 mnemonic: account.mnemonic,
                 index: account.accountIndex,
                 type: account.type,
             });
-            if (newToken) {
-                account.idToken = newToken.idToken;
+            if (newTokenData) {
+                account.idToken = newTokenData.idToken;
                 logger.success(`Token refreshed for account ${account.accountIndex}`);
                 return await fetchStorageInfo(account.idToken, axiosInstance, account);
             } else {
@@ -252,14 +250,14 @@ const createPublicVault = async (idToken, axiosInstance, account) => {
     } catch (error) {
         if (error.response && error.response.status === 401) {
             logger.warn(`Token expired for account ${account.accountIndex}. Attempting to refresh token...`);
-            const newToken = await loginWallet({
+            const newTokenData = await loginWallet({
                 privateKey: account.privateKey,
                 mnemonic: account.mnemonic,
                 index: account.accountIndex,
                 type: account.type,
             });
-            if (newToken) {
-                account.idToken = newToken.idToken;
+            if (newTokenData) {
+                account.idToken = newTokenData.idToken;
                 logger.success(`Token refreshed for account ${account.accountIndex}`);
                 return await createPublicVault(account.idToken, axiosInstance, account);
             } else {
@@ -290,29 +288,27 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
         const fileSize = imageBuffer.length;
         const mimeType = 'image/jpeg';
 
-        const uploadMetadata = {
+        // Perbaikan pada pembuatan metadata
+        const metadata = {
             vaultId: vault.id,
             parentId: vault.rootFolderId,
-            relativePath: Buffer.from('null').toString('base64'),
+            relativePath: Buffer.from('null').toString('base64'), // Sesuai format asli
             name: Buffer.from(fileName).toString('base64'),
             type: Buffer.from(mimeType).toString('base64'),
             filetype: Buffer.from(mimeType).toString('base64'),
             filename: Buffer.from(fileName).toString('base64'),
         };
 
+        const uploadMetadataString = Object.entries(metadata)
+            .map(([key, value]) => `${key} ${value}`)
+            .join(',');
+
         const uploadHeaders = {
             ...getCommonHeaders(idToken),
             'content-type': 'application/offset+octet-stream',
             'tus-resumable': '1.0.0',
             'upload-length': fileSize.toString(),
-            'upload-metadata': Object.entries(uploadMetadata)
-                .map(([k, v]) => {
-                    if (['vaultId', 'parentId'].includes(k)) {
-                        return `${k} ${Buffer.from(v).toString('base64')}`;
-                    }
-                    return `${k} ${v}`;
-                })
-                .join(','),
+            'upload-metadata': uploadMetadataString,
         };
 
         const uploadParams = {
@@ -333,14 +329,14 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
     } catch (error) {
         if (error.response && error.response.status === 401) {
             logger.warn(`Token expired for account ${account.accountIndex}. Attempting to refresh token...`);
-            const newToken = await loginWallet({
+            const newTokenData = await loginWallet({
                 privateKey: account.privateKey,
                 mnemonic: account.mnemonic,
                 index: account.accountIndex,
                 type: account.type,
             });
-            if (newToken) {
-                account.idToken = newToken.idToken;
+            if (newTokenData) {
+                account.idToken = newTokenData.idToken;
                 logger.success(`Token refreshed for account ${account.accountIndex}`);
                 return await uploadFile(account.idToken, vault, axiosInstance, account);
             } else {
@@ -350,7 +346,11 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
         }
         logger.error(`Failed to upload file to vault "${vault.name}" for account ${account.accountIndex}: ${error.message}`);
         if (error.response) {
-            logger.error(`API response: ${JSON.stringify(error.response.data)}`);
+            // Periksa apakah error.response.data adalah string atau objek
+            const apiResponse = typeof error.response.data === 'string' 
+                ? error.response.data 
+                : JSON.stringify(error.response.data);
+            logger.error(`API response: ${apiResponse}`);
         }
         throw error;
     }
@@ -405,7 +405,10 @@ const runUploads = async (numberOfUploads, account, proxyUrl) => {
     } catch (error) {
         logger.error(`Error processing uploads for account ${account.accountIndex}: ${error.message}`);
         if (error.response) {
-            logger.error(`API response: ${JSON.stringify(error.response.data)}`);
+            const apiResponse = typeof error.response.data === 'string' 
+                ? error.response.data 
+                : JSON.stringify(error.response.data);
+            logger.error(`API response: ${apiResponse}`);
         }
     }
 };
@@ -415,7 +418,13 @@ const main = async () => {
 
     const numberOfUploads = await new Promise((resolve) => {
         rl.question('Enter the number of uploads to perform daily: ', (answer) => {
-            resolve(parseInt(answer, 10) || 1);
+            const num = parseInt(answer, 10);
+            if (isNaN(num) || num < 1) {
+                logger.warn("Invalid number, defaulting to 1 upload.");
+                resolve(1);
+            } else {
+                resolve(num);
+            }
         });
     });
     logger.info(`Will perform ${numberOfUploads} uploads daily`);
@@ -473,4 +482,3 @@ main().catch((error) => {
     logger.critical(`Fatal error: ${error.message}`);
     rl.close();
 });
-
