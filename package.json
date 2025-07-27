@@ -33,10 +33,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/airdropinsiders/tusky-testnet-bot.git"
+    "url": "git+https://github.com/19seniman/Tusky-by-SuiNetwork.git"
   },
   "bugs": {
-    "url": "https://github.com/airdropinsiders/tusky-testnet-bot/issues"
+    "url": "https://github.com/19seniman/Tusky-by-SuiNetwork/issues"
   },
-  "homepage": "https://github.com/airdropinsiders/tusky-testnet-bot#readme"
+  "homepage": "https://github.com/19seniman/Tusky-by-SuiNetwork.git#readme"
 }
