@@ -1,0 +1,42 @@
+{
+  "name": "tusky by SuiNetwok",
+  "version": "1.0.0",
+  "description": "Automated Upload files on Tusky",
+  "main": "lim.js",
+  "scripts": {
+    "start": "lim tusky.js",
+    "dev": "nodemon tusky.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "tusky",
+    "testnet",
+    "bot",
+    "automation",
+    "sui network",
+    "blockchain",
+    "upload"
+  ],
+  "author": "19Seniman From Insider",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "https-proxy-agent": "^7.0.2",
+    "@mysten/sui.js": "^0.50.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/airdropinsiders/tusky-testnet-bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/airdropinsiders/tusky-testnet-bot/issues"
+  },
+  "homepage": "https://github.com/airdropinsiders/tusky-testnet-bot#readme"
+}
