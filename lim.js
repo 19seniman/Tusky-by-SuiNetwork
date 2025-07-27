@@ -288,11 +288,10 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
         const fileSize = imageBuffer.length;
         const mimeType = 'image/jpeg';
 
-        // Perbaikan pada pembuatan metadata
         const metadata = {
             vaultId: vault.id,
             parentId: vault.rootFolderId,
-            relativePath: Buffer.from('null').toString('base64'), // Sesuai format asli
+            relativePath: Buffer.from('null').toString('base64'),
             name: Buffer.from(fileName).toString('base64'),
             type: Buffer.from(mimeType).toString('base64'),
             filetype: Buffer.from(mimeType).toString('base64'),
@@ -305,20 +304,17 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
 
         const uploadHeaders = {
             ...getCommonHeaders(idToken),
-            'content-type': 'application/offset+octet-stream',
+            // PERUBAHAN 1: Mengubah content-type menjadi lebih standar
+            'content-type': 'application/octet-stream', 
             'tus-resumable': '1.0.0',
             'upload-length': fileSize.toString(),
             'upload-metadata': uploadMetadataString,
         };
-
-        const uploadParams = {
-            vaultId: vault.id,
-        };
         
         logger.loading(`Uploading ${fileName} (${(fileSize / 1000000).toFixed(2)} MB)...`);
-        const uploadResponse = await axiosInstance.post('https://api.tusky.io/uploads', imageBuffer, {
+        // PERUBAHAN 2: Menghapus `params` yang redundan dari panggilan POST
+        const uploadResponse = await axiosInstance.post(`https://api.tusky.io/uploads?vaultId=${vault.id}`, imageBuffer, {
             headers: uploadHeaders,
-            params: uploadParams,
         });
 
         const uploadId = uploadResponse.data.uploadId;
@@ -346,7 +342,6 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
         }
         logger.error(`Failed to upload file to vault "${vault.name}" for account ${account.accountIndex}: ${error.message}`);
         if (error.response) {
-            // Periksa apakah error.response.data adalah string atau objek
             const apiResponse = typeof error.response.data === 'string' 
                 ? error.response.data 
                 : JSON.stringify(error.response.data);
