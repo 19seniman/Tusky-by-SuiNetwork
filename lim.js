@@ -74,7 +74,7 @@ const getCommonHeaders = (authToken = null) => ({
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-site',
     'sec-gpc': '1',
-    Referer: 'https://app.tusky.io/',
+    Referer: 'https://testnet.app.tusky.io/',
     ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
 });
 
@@ -140,7 +140,7 @@ const loginWallet = async (account) => {
         logger.info(`Processing address: ${address}`);
 
         const challengeResponse = await axios.post(
-            'https://api.tusky.io/auth/create-challenge?', { address }, { headers: getCommonHeaders() }
+            'https://testnet.app.tusky.io/auth/create-challenge?', { address }, { headers: getCommonHeaders() }
         );
 
         const nonce = challengeResponse.data.nonce;
@@ -153,7 +153,7 @@ const loginWallet = async (account) => {
         logger.info(`Generated signature: ${signature.slice(0, 20)}...`);
 
         const verifyResponse = await axios.post(
-            'https://api.tusky.io/auth/verify-challenge?', { address, signature }, { headers: getCommonHeaders() }
+            'https://testnet.app.tusky.io//auth/verify-challenge?', { address, signature }, { headers: getCommonHeaders() }
         );
 
         const idToken = verifyResponse.data.idToken;
@@ -175,7 +175,7 @@ const loginWallet = async (account) => {
 const fetchStorageInfo = async (idToken, axiosInstance, account) => {
     logger.step(`Fetching storage information for account ${account.accountIndex}`);
     try {
-        const response = await axiosInstance.get('https://api.tusky.io/storage?', {
+        const response = await axiosInstance.get('https://testnet.app.tusky.io/storage?', {
             headers: {
                 ...getCommonHeaders(idToken),
                 'client-name': 'Tusky-App/dev',
@@ -230,7 +230,7 @@ const createPublicVault = async (idToken, axiosInstance, account) => {
             tags: []
         };
 
-        const response = await axiosInstance.post('https://api.tusky.io/vaults?', vaultData, {
+        const response = await axiosInstance.post('https://testnet.app.tusky.io/vaults?', vaultData, {
             headers: {
                 ...getCommonHeaders(idToken),
                 'client-name': 'Tusky-App/dev',
