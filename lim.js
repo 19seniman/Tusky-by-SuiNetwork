@@ -33,7 +33,7 @@ const logger = {
     summary: (msg) => console.log(`${colors.green}${colors.bold}[SUMMARY] ${msg}${colors.reset}`),
     banner: () => {
         const border = `${colors.blue}${colors.bold}╔═════════════════════════════════════════╗${colors.reset}`;
-        const title = `${colors.blue}${colors.bold}║      🍉 19Seniman From Insider     🍉      ║${colors.reset}`;
+        const title = `${colors.blue}${colors.bold}║     🍉 19Seniman From Insider      🍉     ║${colors.reset}`;
         const bottomBorder = `${colors.blue}${colors.bold}╚═════════════════════════════════════════╝${colors.reset}`;
         
         console.log(`\n${border}`);
@@ -153,10 +153,16 @@ const loginWallet = async (account) => {
         logger.info(`Generated signature: ${signature.slice(0, 20)}...`);
 
         const verifyResponse = await axios.post(
-            'https://testnet.app.tusky.io//auth/verify-challenge?', { address, signature }, { headers: getCommonHeaders() }
+            'https://testnet.app.tusky.io/auth/verify-challenge?', { address, signature }, { headers: getCommonHeaders() }
         );
 
+        // === PERBAIKAN DIMULAI DI SINI ===
         const idToken = verifyResponse.data.idToken;
+        if (!idToken) {
+            throw new Error('Verification successful, but API did not return an idToken.');
+        }
+        // === PERBAIKAN SELESAI ===
+        
         logger.success(`Successfully logged in for address ${address}`);
 
         fs.appendFileSync('tokens.txt', `${idToken}\n`);
@@ -304,15 +310,13 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
 
         const uploadHeaders = {
             ...getCommonHeaders(idToken),
-            // PERUBAHAN 1: Mengubah content-type menjadi lebih standar
-            'content-type': 'application/octet-stream', 
+            'content-type': 'application/octet-stream',
             'tus-resumable': '1.0.0',
             'upload-length': fileSize.toString(),
             'upload-metadata': uploadMetadataString,
         };
         
         logger.loading(`Uploading ${fileName} (${(fileSize / 1000000).toFixed(2)} MB)...`);
-        // PERUBAHAN 2: Menghapus `params` yang redundan dari panggilan POST
         const uploadResponse = await axiosInstance.post(`https://storage.chatling.ai/uploads?vaultId=${vault.id}`, imageBuffer, {
             headers: uploadHeaders,
         });
