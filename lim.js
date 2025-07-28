@@ -3,9 +3,6 @@ const dotenv = require('dotenv');
 const readline = require('readline');
 const fs = require('fs');
 const { HttpsProxyAgent } = require('https-proxy-agent');
-const { SuiClient, getFullnodeUrl } = require('@mysten/sui.js/client');
-const { Ed25519Keypair } = require('@mysten/sui.js/keypairs/ed25519');
-const { decodeSuiPrivateKey } = require('@mysten/sui.js/cryptography');
 
 dotenv.config();
 
@@ -16,38 +13,26 @@ const colors = {
     yellow: "\x1b[33m",
     red: "\x1b[31m",
     white: "\x1b[37m",
-    bold: "\x1b[1m",
-    magenta: "\x1b[35m",
-    blue: "\x1b[34m",
-    gray: "\x1b[90m",
+    bold: "\x1b[1m"
 };
 
 const logger = {
-    info: (msg) => console.log(`${colors.cyan}[i] ${msg}${colors.reset}`),
-    warn: (msg) => console.log(`${colors.yellow}[!] ${msg}${colors.reset}`),
-    error: (msg) => console.log(`${colors.red}[x] ${msg}${colors.reset}`),
-    success: (msg) => console.log(`${colors.green}[+] ${msg}${colors.reset}`),
-    loading: (msg) => console.log(`${colors.magenta}[*] ${msg}${colors.reset}`),
-    step: (msg) => console.log(`${colors.blue}[>] ${colors.bold}${msg}${colors.reset}`),
-    critical: (msg) => console.log(`${colors.red}${colors.bold}[FATAL] ${msg}${colors.reset}`),
-    summary: (msg) => console.log(`${colors.green}${colors.bold}[SUMMARY] ${msg}${colors.reset}`),
+    info: (msg) => console.log(`${colors.green}[✓] ${msg}${colors.reset}`),
+    warn: (msg) => console.log(`${colors.yellow}[⚠] ${msg}${colors.reset}`),
+    error: (msg) => console.log(`${colors.red}[✗] ${msg}${colors.reset}`),
+    success: (msg) => console.log(`${colors.green}[✅] ${msg}${colors.reset}`),
+    loading: (msg) => console.log(`${colors.cyan}[⟳] ${msg}${colors.reset}`),
+    step: (msg) => console.log(`${colors.white}[➤] ${msg}${colors.reset}`),
     banner: () => {
-        const border = `${colors.blue}${colors.bold}╔═════════════════════════════════════════╗${colors.reset}`;
-        const title = `${colors.blue}${colors.bold}║   🍉 19Seniman From Insider   🍉   ║${colors.reset}`;
-        const bottomBorder = `${colors.blue}${colors.bold}╚═════════════════════════════════════════╝${colors.reset}`;
-
-        console.log(`\n${border}`);
-        console.log(`${title}`);
-        console.log(`${bottomBorder}\n`);
-    },
-    section: (msg) => {
-        const line = '─'.repeat(40);
-        console.log(`\n${colors.gray}${line}${colors.reset}`);
-        if (msg) console.log(`${colors.white}${colors.bold} ${msg}${colors.reset}`);
-        console.log(`${colors.gray}${line}${colors.reset}\n`);
-    },
-    countdown: (msg) => process.stdout.write(`\r${colors.blue}[⏰] ${msg}${colors.reset}`),
+        console.log(`${colors.cyan}${colors.bold}`);
+        console.log(`---------------------------------------------`);
+        console.log(`   🍉🍉 19Seniman From Insider 🍉🍉  `);
+        console.log(`---------------------------------------------${colors.reset}`);
+        console.log();
+    }
 };
+
+const DEFAULT_IMAGE_URL = 'https://picsum.photos/800/600';
 
 const generateRandomUserAgent = () => {
     const browsers = ['Brave', 'Chrome', 'Firefox', 'Safari'];
@@ -59,19 +44,11 @@ const generateRandomUserAgent = () => {
     return `"Not)A;Brand";v="8", "Chromium";v="${version}", "${browser}";v="${version}"`;
 };
 
-// --- URL API dan Referer Baru ---
-const BASE_API_URL = 'https://dev-api.tusky.io/';
-const REFERER_URL = 'https://devnet.app.tusky.io/';
-// --- Endpoint Upload Baru ---
-const UPLOAD_API_URL = 'https://api.tusky.io/uploads'; // Endpoint upload yang diminta
-// --- Akhir URL Baru ---
-
 const getCommonHeaders = (authToken = null) => ({
-    accept: 'application/json, text/plain, */*',
-    'accept-language': 'en-US,en;q=0.8',
+    'accept': 'application/json, text/plain, */*',
+    'accept-language': 'en-US,en;q=0.9',
     'content-type': 'application/json',
-    'client-name': 'Tusky-App/dev',
-    priority: 'u=1, i',
+    'priority': 'u=1, i',
     'sdk-version': 'Tusky-SDK/0.31.0',
     'sec-ch-ua': generateRandomUserAgent(),
     'sec-ch-ua-mobile': '?0',
@@ -80,29 +57,29 @@ const getCommonHeaders = (authToken = null) => ({
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-site',
     'sec-gpc': '1',
-    Referer: REFERER_URL,
-    ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
+    'Referer': 'https://testnet.app.tusky.io/', // Pastikan ini sesuai dengan domain Tusky Anda
+    ...(authToken ? { 'authorization': `Bearer ${authToken}` } : {}),
+    'client-name': 'Tusky-App/dev'
 });
+
+// --- Endpoint Upload yang Diminta ---
+const UPLOAD_API_URL = 'https://api.tusky.io/uploads'; 
+// --- Akhir Endpoint Upload ---
 
 // Fungsi untuk header upload, dikembalikan lagi
 const getUploadHeaders = (idToken, fileSize, uploadMetadata) => ({
-    accept: 'application/json, text/plain, */*',
-    'accept-language': 'en-US,en;q=0.8',
+    ...getCommonHeaders(idToken), // Mengambil header umum dan menambahkan atau menimpa yang spesifik
     'content-type': 'application/offset+octet-stream', // Penting untuk TUS
     'tus-resumable': '1.0.0', // Penting untuk TUS
     'upload-length': fileSize.toString(), // Penting untuk TUS
+    // Menggunakan Object.entries dan map untuk format upload-metadata dengan base64 encoding
     'upload-metadata': Object.entries(uploadMetadata)
         .map(([k, v]) => {
             // Encode value if it's vaultId, parentId, name, type, filetype, filename
-            if (['vaultId', 'parentId', 'name', 'type', 'filetype', 'filename'].includes(k)) {
-                // Pastikan nilai adalah string sebelum di-encode
-                return `${k} ${Buffer.from(String(v)).toString('base64')}`;
-            }
-            return `${k} ${v}`; // Biarkan nilai lain seperti adanya
+            // Pastikan nilai adalah string sebelum di-encode
+            return `${k} ${Buffer.from(String(v)).toString('base64')}`;
         })
-        .join(','),
-    Referer: REFERER_URL,
-    ...(idToken ? { authorization: `Bearer ${idToken}` } : {}),
+        .join(',')
 });
 
 const loadProxies = () => {
@@ -124,7 +101,7 @@ const createAxiosInstance = (proxyUrl = null) => {
         try {
             logger.info(`Using proxy: ${proxyUrl}`);
             return axios.create({
-                httpsAgent: new HttpsProxyAgent(proxyUrl),
+                httpsAgent: new HttpsProxyAgent(proxyUrl)
             });
         } catch (error) {
             logger.warn(`Invalid proxy format: ${proxyUrl}. Falling back to direct mode.`);
@@ -135,108 +112,39 @@ const createAxiosInstance = (proxyUrl = null) => {
     return axios.create();
 };
 
-const isValidUUID = (str) => {
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(str);
-};
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
 
-const loginWallet = async (account) => {
-    logger.step(`Starting wallet login process for account ${account.index} (${account.type})`);
-    try {
-        const client = new SuiClient({ url: getFullnodeUrl('mainnet') });
-        let keypair;
-        if (account.mnemonic) {
-            logger.info(`Processing mnemonic for account ${account.index}`);
-            try {
-                keypair = Ed25519Keypair.deriveKeypair(account.mnemonic, "m/44'/784'/0'/0'/0'");
-            } catch (e) {
-                throw new Error(`Invalid mnemonic for account ${account.index}: ${e.message}`);
-            }
-        } else if (account.privateKey) {
-            logger.info(`Processing private key for account ${account.index}: ${account.privateKey.slice(0, 15)}...`);
-            const { secretKey } = decodeSuiPrivateKey(account.privateKey);
-            if (secretKey.length !== 32) {
-                throw new Error(`Wrong secretKey size. Expected 32 bytes, got ${secretKey.length}`);
-            }
-            keypair = Ed25519Keypair.fromSecretKey(secretKey);
+const loadTokens = () => {
+    const tokens = [];
+    let i = 1;
+    while (process.env[`token_${i}`]) {
+        const token = process.env[`token_${i}`];
+        if (token) {
+            logger.info(`Loaded token ${i}: ${token.slice(0, 20)}...`);
+            tokens.push({ idToken: token });
         } else {
-            throw new Error(`No valid private key or mnemonic for account ${account.index}`);
+            logger.error(`Invalid token for token_${i}`);
         }
-
-        const address = keypair.getPublicKey().toSuiAddress();
-        logger.info(`Processing address: ${address}`);
-
-        const challengeResponse = await axios.post(
-            `${BASE_API_URL}auth/create-challenge?`,
-            { address },
-            { headers: getCommonHeaders() }
-        );
-
-        const nonce = challengeResponse.data.nonce;
-        const message = `tusky:connect:${nonce}`;
-        logger.info(`Signing message: ${message}`);
-
-        const messageBytes = new TextEncoder().encode(message);
-        const signatureData = await keypair.signPersonalMessage(messageBytes);
-        const signature = signatureData.signature;
-        logger.info(`Generated signature: ${signature}`);
-
-        const verifyResponse = await axios.post(
-            `${BASE_API_URL}auth/verify-challenge?`,
-            { address, signature },
-            { headers: getCommonHeaders() }
-        );
-
-        const idToken = verifyResponse.data.idToken;
-        logger.success(`Successfully logged in for address ${address}`);
-
-        fs.appendFileSync('tokens.txt', `${idToken}\n`);
-        logger.info(`Token saved to tokens.txt`);
-
-        return { idToken, address, accountIndex: account.index, privateKey: account.privateKey, mnemonic: account.mnemonic, type: account.type };
-    } catch (error) {
-        logger.error(`Failed to login for account ${account.index} (${account.type}): ${error.message}`);
-        if (error.response) {
-            logger.error(`API response: ${JSON.stringify(error.response.data)}`);
-        }
-        return null;
+        i++;
     }
+    return tokens;
 };
 
-const fetchStorageInfo = async (idToken, axiosInstance, account) => {
-    logger.step(`Fetching storage information for account ${account.accountIndex}`);
+const fetchStorageInfo = async (idToken, axiosInstance) => {
+    logger.step(`Fetching storage information`);
     try {
-        const response = await axiosInstance.get(`${BASE_API_URL}storage?`, {
-            headers: {
-                ...getCommonHeaders(idToken),
-                'client-name': 'Tusky-App/dev',
-            },
+        const response = await axiosInstance.get('https://dev-api.tusky.io/storage?', {
+            headers: getCommonHeaders(idToken)
         });
-        const { storageAvailable, storageTotal, photos, owner } = response.data;
+        const { storageAvailable, storageTotal } = response.data;
         logger.info(`Storage Available: ${storageAvailable} bytes (~${(storageAvailable / 1000000).toFixed(2)} MB)`);
         logger.info(`Storage Total: ${storageTotal} bytes (~${(storageTotal / 1000000).toFixed(2)} MB)`);
-        logger.info(`Photos Size: ${photos} bytes`);
-        logger.info(`Owner: ${owner}`);
-        return { storageAvailable, storageTotal, photos, owner };
+        return { storageAvailable, storageTotal };
     } catch (error) {
-        if (error.response && error.response.status === 401) {
-            logger.warn(`Token expired for account ${account.accountIndex}. Attempting to refresh token...`);
-            const newToken = await loginWallet({
-                privateKey: account.privateKey,
-                mnemonic: account.mnemonic,
-                index: account.accountIndex,
-                type: account.type,
-            });
-            if (newToken) {
-                account.idToken = newToken.idToken;
-                logger.success(`Token refreshed for account ${account.accountIndex}`);
-                return await fetchStorageInfo(account.idToken, axiosInstance, account);
-            } else {
-                logger.error(`Failed to refresh token for account ${account.accountIndex}`);
-                throw new Error('Token refresh failed');
-            }
-        }
-        logger.error(`Failed to fetch storage info for account ${account.accountIndex}: ${error.message}`);
+        logger.error(`Failed to fetch storage info: ${error.message}`);
         if (error.response) {
             logger.error(`API response: ${JSON.stringify(error.response.data)}`);
         }
@@ -244,59 +152,21 @@ const fetchStorageInfo = async (idToken, axiosInstance, account) => {
     }
 };
 
-const generateRandomVaultName = () => {
-    const adjectives = ['Cosmic', 'Stellar', 'Lunar', 'Solar', 'Nebula', 'Galactic', 'Orbit', 'Astro'];
-    const nouns = ['Vault', 'Storage', 'Chamber', 'Node', 'Hub', 'Cluster', 'Zone', 'Realm'];
-    const randomNum = Math.floor(Math.random() * 1000);
-    return `${adjectives[Math.floor(Math.random() * adjectives.length)]}-${nouns[Math.floor(Math.random() * nouns.length)]}-${randomNum}`;
-};
-
-const createPublicVault = async (idToken, axiosInstance, account) => {
-    logger.step(`Creating new public vault for account ${account.accountIndex}`);
+const fetchVaults = async (idToken, axiosInstance) => {
+    logger.step(`Fetching active, non-encrypted vaults`);
     try {
-        const vaultName = generateRandomVaultName();
-        const vaultData = {
-            name: vaultName,
-            encrypted: false,
-            tags: []
-        };
-
-        const response = await axiosInstance.post(`${BASE_API_URL}vaults?`, vaultData, {
-            headers: {
-                ...getCommonHeaders(idToken),
-                'client-name': 'Tusky-App/dev',
-            },
+        const response = await axiosInstance.get('https://dev-api.tusky.io/vaults?status=active&limit=1000', {
+            headers: getCommonHeaders(idToken)
         });
-
-        const vault = response.data;
-        logger.success(`Created new public vault: "${vault.name}" (${vault.id})`);
-
-        return {
-            id: vault.id,
-            name: vault.name,
-            rootFolderId: vault.id,
-            size: vault.size || 0,
-            owner: vault.owner
-        };
-    } catch (error) {
-        if (error.response && error.response.status === 401) {
-            logger.warn(`Token expired for account ${account.accountIndex}. Attempting to refresh token...`);
-            const newToken = await loginWallet({
-                privateKey: account.privateKey,
-                mnemonic: account.mnemonic,
-                index: account.accountIndex,
-                type: account.type,
-            });
-            if (newToken) {
-                account.idToken = newToken.idToken;
-                logger.success(`Token refreshed for account ${account.accountIndex}`);
-                return await createPublicVault(account.idToken, axiosInstance, account);
-            } else {
-                logger.error(`Failed to refresh token for account ${account.accountIndex}`);
-                throw new Error('Token refresh failed');
-            }
+        const vaults = response.data.items.filter(vault => !vault.encrypted && vault.status === 'active');
+        if (vaults.length === 0) {
+            logger.error('No active, non-encrypted vaults found');
+            return [];
         }
-        logger.error(`Failed to create vault for account ${account.accountIndex}: ${error.message}`);
+        logger.info(`Found ${vaults.length} active, non-encrypted vaults`);
+        return vaults.map(vault => vault.id);
+    } catch (error) {
+        logger.error(`Failed to fetch vaults: ${error.message}`);
         if (error.response) {
             logger.error(`API response: ${JSON.stringify(error.response.data)}`);
         }
@@ -304,23 +174,18 @@ const createPublicVault = async (idToken, axiosInstance, account) => {
     }
 };
 
-const uploadFile = async (idToken, vault, axiosInstance, account) => {
-    logger.step(`Uploading file to vault "${vault.name}" (${vault.id}) for account ${account.accountIndex}`);
+const uploadFile = async (idToken, vaultId, axiosInstance) => {
+    logger.step(`Uploading file to vault ${vaultId}`);
     try {
-        if (!isValidUUID(vault.id) || !isValidUUID(vault.rootFolderId)) {
-            logger.error(`Invalid vaultId or rootFolderId format: vaultId=${vault.id}, rootFolderId=${vault.rootFolderId}`);
-            throw new Error('Invalid UUID format');
-        }
-
-        const imageResponse = await axios.get('https://picsum.photos/800/600', { responseType: 'arraybuffer' });
+        const imageResponse = await axios.get(DEFAULT_IMAGE_URL, { responseType: 'arraybuffer' });
         const imageBuffer = Buffer.from(imageResponse.data);
         const fileName = `image_${Date.now()}.jpg`;
         const fileSize = imageBuffer.length;
         const mimeType = 'image/jpeg';
 
         const uploadMetadata = {
-            vaultId: vault.id,
-            parentId: vault.rootFolderId,
+            vaultId: vaultId,
+            parentId: vaultId, // Asumsi rootFolderId sama dengan vaultId untuk upload langsung
             relativePath: 'null', // 'null' string, tidak perlu di-base64 jika tidak ada path
             name: fileName,
             type: mimeType,
@@ -330,40 +195,19 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
 
         const uploadHeaders = getUploadHeaders(idToken, fileSize, uploadMetadata);
 
-        const uploadParams = {
-            vaultId: vault.id, // Parameter ini mungkin dibutuhkan oleh endpoint
-        };
-
         // --- Perubahan: Menggunakan UPLOAD_API_URL yang baru ---
         const uploadResponse = await axiosInstance.post(UPLOAD_API_URL, imageBuffer, {
             headers: uploadHeaders,
-            params: uploadParams, // Sertakan params jika diperlukan oleh endpoint
+            // Tidak ada `params` yang disertakan di sini kecuali API Tusky secara eksplisit membutuhkannya
         });
 
-        const uploadId = uploadResponse.data.uploadId; // Asumsi respons memiliki uploadId
-        logger.success(`File uploaded to vault "${vault.name}", Upload ID: ${uploadId}`);
+        const uploadId = uploadResponse.data.uploadId || uploadResponse.data.id; // Asumsi respons memiliki uploadId atau id
+        logger.success(`File uploaded, ID: ${uploadId}`);
         logger.info(`File details: ${fileName} (${(fileSize / 1000000).toFixed(2)} MB)`);
 
         return uploadId;
     } catch (error) {
-        if (error.response && error.response.status === 401) {
-            logger.warn(`Token expired for account ${account.accountIndex}. Attempting to refresh token...`);
-            const newToken = await loginWallet({
-                privateKey: account.privateKey,
-                mnemonic: account.mnemonic,
-                index: account.accountIndex,
-                type: account.type,
-            });
-            if (newToken) {
-                account.idToken = newToken.idToken;
-                logger.success(`Token refreshed for account ${account.accountIndex}`);
-                return await uploadFile(account.idToken, vault, axiosInstance, account);
-            } else {
-                logger.error(`Failed to refresh token for account ${account.accountIndex}`);
-                throw new Error('Token refresh failed');
-            }
-        }
-        logger.error(`Failed to upload file to vault "${vault.name}" for account ${account.accountIndex}: ${error.message}`);
+        logger.error(`Failed to upload file: ${error.message}`);
         if (error.response) {
             logger.error(`API response: ${JSON.stringify(error.response.data)}`);
         }
@@ -371,126 +215,62 @@ const uploadFile = async (idToken, vault, axiosInstance, account) => {
     }
 };
 
-const countdown = (seconds) => {
-    return new Promise((resolve) => {
-        const interval = setInterval(() => {
-            const hours = Math.floor(seconds / 3600);
-            const minutes = Math.floor((seconds % 3600) / 60);
-            const secs = seconds % 60;
-            logger.countdown(`${hours}h ${minutes}m ${secs}s`);
-            seconds--;
-            if (seconds < 0) {
-                clearInterval(interval);
-                process.stdout.write('\n');
-                resolve();
-            }
-        }, 1000);
-    });
-};
-
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-});
-
-const runUploads = async (numberOfUploads, account, proxyUrl) => {
-    logger.section(`Starting Uploads for Account ${account.accountIndex}`);
-    try {
-        const idToken = account.idToken;
-        logger.step(`Using token for address ${account.address}: ${idToken.slice(0, 20)}...`);
-
-        const axiosInstance = createAxiosInstance(proxyUrl);
-
-        await fetchStorageInfo(idToken, axiosInstance, account);
-
-        const vault = await createPublicVault(idToken, axiosInstance, account);
-        logger.info(`Using newly created vault: "${vault.name}" (${vault.id})`);
-
-        for (let i = 0; i < numberOfUploads; i++) {
-            logger.step(`Upload ${i + 1} of ${numberOfUploads} to vault "${vault.name}"`);
-            await uploadFile(idToken, vault, axiosInstance, account);
-            logger.success(`Upload ${i + 1} completed for account ${account.accountIndex}`);
-
-            if (i < numberOfUploads - 1) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
-
-        logger.summary(`All ${numberOfUploads} uploads completed for account ${account.accountIndex}`);
-    } catch (error) {
-        logger.error(`Error processing uploads for account ${account.accountIndex}: ${error.message}`);
-        if (error.response) {
-            logger.error(`API response: ${JSON.stringify(error.response.data)}`);
-        }
-    }
-};
-
 const main = async () => {
     logger.banner();
-
-    const numberOfUploads = await new Promise((resolve) => {
-        rl.question('Enter the number of uploads to perform daily: ', (answer) => {
-            resolve(parseInt(answer, 10) || 1);
-        });
-    });
-    logger.info(`Will perform ${numberOfUploads} uploads daily`);
+    const accounts = loadTokens();
+    if (accounts.length === 0) {
+        logger.error('No tokens found in .env file');
+        return;
+    }
 
     const proxies = loadProxies();
     let proxyIndex = 0;
 
-    while (true) {
-        const accounts = [];
-        let i = 1;
-        while (true) {
-            const privateKey = process.env[`PRIVATE_KEY_${i}`];
-            const mnemonic = process.env[`MNEMONIC_${i}`];
-            if (!privateKey && !mnemonic) {
-                break;
-            }
-            if (privateKey) {
-                accounts.push({ privateKey, mnemonic: null, index: accounts.length + 1, type: 'privateKey' });
-            }
-            if (mnemonic) {
-                accounts.push({ privateKey: null, mnemonic, index: accounts.length + 1, type: 'mnemonic' });
-            }
-            i++;
-        }
+    const numberOfUploads = await new Promise((resolve) => {
+        rl.question('Enter the number of uploads to perform: ', (answer) => {
+            resolve(parseInt(answer, 10) || 1);
+        });
+    });
+    logger.info(`Will perform ${numberOfUploads} uploads`);
 
-        if (accounts.length === 0) {
-            logger.critical('No valid private keys or mnemonics found in .env file');
-            break;
-        }
+    for (const account of accounts) {
+        try {
+            const idToken = account.idToken;
+            logger.step(`Using token: ${idToken.slice(0, 20)}...`);
 
-        logger.info(`Found ${accounts.length} accounts to process`);
-        logger.info(`Loaded accounts: ${JSON.stringify(accounts.map(a => ({
-            index: a.index,
-            type: a.type,
-            hasPrivateKey: !!a.privateKey,
-            hasMnemonic: !!a.mnemonic
-        })))}`);
+            const proxyUrl = proxies.length > 0 ? proxies[proxyIndex % proxies.length] : null;
+            const axiosInstance = createAxiosInstance(proxyUrl);
+            proxyIndex++;
 
-        for (const account of accounts) {
-            logger.section(`Processing account ${account.index} (${account.type})`);
-            const loggedInAccount = await loginWallet(account);
-            if (loggedInAccount) {
-                const proxyUrl = proxies.length > 0 ? proxies[proxyIndex % proxies.length] : null;
-                proxyIndex++;
-                await runUploads(numberOfUploads, loggedInAccount, proxyUrl);
-            } else {
-                logger.error(`Skipping account ${account.index} (${account.type}) due to login failure`);
+            await fetchStorageInfo(idToken, axiosInstance);
+
+            const vaultIds = await fetchVaults(idToken, axiosInstance);
+            if (vaultIds.length === 0) {
+                logger.error('No vaults available for uploading');
+                continue;
+            }
+
+            // Loop melalui setiap vault dan lakukan upload
+            for (const vaultId of vaultIds) {
+                logger.step(`Processing vault ${vaultId}`);
+                for (let i = 0; i < numberOfUploads; i++) {
+                    logger.step(`Upload ${i + 1} of ${numberOfUploads} to vault ${vaultId}`);
+                    await uploadFile(idToken, vaultId, axiosInstance); // Panggil fungsi uploadFile yang baru
+                    logger.success(`Upload ${i + 1} completed for vault ${vaultId}`);
+                }
+            }
+        } catch (error) {
+            logger.error(`Error for token: ${error.message}`);
+            if (error.response) {
+                logger.error(`API response: ${JSON.stringify(error.response.data)}`);
             }
         }
-
-        logger.summary('Daily upload session completed for all accounts');
-        const nextRun = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        logger.info(`Next run scheduled at: ${nextRun.toLocaleString('en-US', { timeZone: 'Asia/Makassar' })}`);
-        await countdown(24 * 60 * 60);
     }
 
     rl.close();
 };
 
 main().catch((error) => {
-    logger.critical(`Fatal error: ${error.message}`);
+    logger.error(`Fatal error: ${error.message}`);
     rl.close();
 });
